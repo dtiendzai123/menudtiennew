@@ -248,6 +248,22 @@
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
+function aimAtHead(input, head, options = {}) {
+    const boost = options.boost || 1.35;
+    const maxOffset = options.maxOffset || 70;
+    const smoothing = options.smoothing || 0.9;
+
+    let dx = head.x - input.x;
+    let dy = head.y - input.y;
+
+    dx = Math.max(-maxOffset, Math.min(maxOffset, dx));
+    dy = Math.max(-maxOffset, Math.min(maxOffset, dy));
+
+    return {
+        x: input.x + dx * boost * smoothing,
+        y: input.y + dy * boost * smoothing * 0.95
+    };
+}
 
     function createStars() {
       stars = [];
