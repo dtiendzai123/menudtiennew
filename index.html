@@ -249,20 +249,32 @@
       canvas.height = window.innerHeight;
     }
 function aimAtHead(input, head, options = {}) {
-    const boost = options.boost || 9999.35;
-    const maxOffset = options.maxOffset || 9999;
-    const smoothing = options.smoothing || 1.0;
+    const boost = options.boost ?? 6.5;        // 3 – 15
+    const smoothing = options.smoothing ?? 0.38;
 
-    let dx = head.x - input.x;
-    let dy = head.y - input.y;
+    // 1. Predict
+    const predicted = predictHead(head);
 
-    dx = Math.max(-maxOffset, Math.min(maxOffset, dx));
-    dy = Math.max(-maxOffset, Math.min(maxOffset, dy));
+    // 2. Vector
+    let dx = predicted.x - input.x;
+    let dy = predicted.y - input.y;
 
-    return {
-        x: input.x + dx * boost * smoothing,
-        y: input.y + dy * boost * smoothing * 0.95
+    const distance = Math.hypot(dx, dy);
+
+    // 3. Dynamic clamp
+    dx = dynamicClamp(dx, distance);
+    dy = dynamicClamp(dy, distance);
+
+    // 4. Boost scale theo distance (chống văng)
+    const distanceScale = Math.min(1, distance / 120);
+
+    const target = {
+        x: input.x + dx * boost * distanceScale,
+        y: input.y + dy * boost * distanceScale * 0.97 // cổ–đầu
     };
+
+    // 5. EMA smoothing
+    return emaSmooth(target, smoothing);
 }
 function optimizeAim(input, target, settings = {}) {
     const factor = settings.factor || 1.0;
