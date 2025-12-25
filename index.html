@@ -719,9 +719,299 @@ const MagnetHeadLock_Instant = {
         return aimPos;
     }
 };
+const NoCrosshairExpandOnDrag = {
+    enabled: true,
 
+    freezeSize: 0.00001,
+    antiKickback: 1.0,
+    antiDrift: 1.0,
+    dragThreshold: 0.0006,
+    stabilityBoost: 2.0,
 
-    
+    lastX: 0,
+    lastY: 0,
+    lastTime: Date.now(),
+
+    apply: function (crosshair, player) {
+        if (!this.enabled) return crosshair;
+
+        let now = Date.now();
+        let dt = (now - this.lastTime) || 1;
+
+        let dx = crosshair.x - this.lastX;
+        let dy = crosshair.y - this.lastY;
+
+        let dragSpeed = Math.hypot(dx, dy) / dt;
+
+        this.lastX = crosshair.x;
+        this.lastY = crosshair.y;
+        this.lastTime = now;
+
+        crosshair.size = this.freezeSize;
+
+        if (dragSpeed > this.dragThreshold) {
+            crosshair.size = this.freezeSize;
+        }
+
+        if (player.isFiring) {
+            crosshair.size -= this.antiKickback;
+        }
+
+        crosshair.x -= dx * this.antiDrift;
+        crosshair.y -= dy * this.antiDrift;
+
+        if (player.isFiringRapid) {
+            crosshair.size *= this.stabilityBoost;
+        }
+
+        return crosshair;
+    }
+};
+    const MagnetHeadLock_DragSafe = {
+    enabled: true,
+
+    dragStrength: 999.65,
+    antiOvershoot: 1.0,
+    dragStickiness: 999.75,
+    maxStep: 0.045,
+    dragPrediction: 0.20,
+
+    apply: function (aimPos, target, player) {
+        if (!this.enabled || !player.isDragging || !target || !target.headPos)
+            return aimPos;
+
+        let head = target.headPos;
+        let dx = head.x - aimPos.x;
+        let dy = head.y - aimPos.y;
+
+        if (target.velocity) {
+            dx += target.velocity.x * this.dragPrediction;
+            dy += target.velocity.y * this.dragPrediction;
+        }
+
+        dx = Math.max(-this.maxStep, Math.min(this.maxStep, dx));
+        dy = Math.max(-this.maxStep, Math.min(this.maxStep, dy));
+
+        dx *= this.dragStrength * this.dragStickiness * this.antiOvershoot;
+        dy *= this.dragStrength * this.dragStickiness * this.antiOvershoot;
+
+        aimPos.x += dx;
+        aimPos.y += dy;
+
+        return aimPos;
+    }
+};
+const UltraHeadLockBoost = {
+    enabled: true,
+    bias: 0.20,
+
+    apply(aim, target) {
+        if (!this.enabled || !target) return aim;
+
+        aim.x += (target.headX - aim.x) * this.bias;
+        aim.y += (target.headY - aim.y) * this.bias;
+
+        return aim;
+    }
+};
+const UltraDragOptimizer = {
+    enabled: true,
+    boost: 999.35,
+
+    apply(aim) {
+        if (!this.enabled) return aim;
+        aim.x *= this.boost;
+        aim.y *= this.boost;
+        return aim;
+    }
+};
+   const RemoveGravityY = {
+    enabled: true,
+    boostY: 0.0028,
+
+    apply(aim, target) {
+        if (!this.enabled) return aim;
+        aim.y += this.boostY;
+        return aim;
+    }
+};
+    const RemoveCameraFriction = {
+    enabled: true,
+    camFric: 0.0,
+
+    apply(aim, player) {
+        if (!this.enabled) return aim;
+        aim.x += player.camDX * this.camFric;
+        aim.y += player.camDY * this.camFric;
+        return aim;
+    }
+};
+
+    const RemoveAimSlowdown = {
+    enabled: true,
+    multiplier: 1.0,
+
+    apply(aim, target) {
+        if (!this.enabled || !target) return aim;
+
+        // Xóa slowdown khi địch trong phạm vi gần
+        if (target.dist < 8) {
+            aim.x *= (1 + this.multiplier);
+            aim.y *= (1 + this.multiplier);
+        }
+        return aim;
+    }
+};
+    const RemoveAimFriction = {
+    enabled: true,
+    microFix: true,
+    lastX: 0,
+    lastY: 0,
+    lastT: Date.now(),
+
+    apply(aim) {
+        if (!this.enabled) return aim;
+
+        var now = Date.now();
+        var dt = (now - this.lastT) || 1;
+
+        var dx = aim.x - this.lastX;
+        var dy = aim.y - this.lastY;
+        var speed = Math.sqrt(dx*dx + dy*dy) / dt;
+
+        this.lastX = aim.x;
+        this.lastY = aim.y;
+        this.lastT = now;
+
+        // Không áp ma sát (0 friction)
+        // Nhưng có khử micro-stall nếu di chuyển quá nhỏ
+        if (this.microFix && speed < 0.0006) {
+            aim.x += dx * 1.4;
+            aim.y += dy * 1.4;
+        }
+
+        return aim;
+    }
+};
+const AntiDropHead = {
+    enabled: true,
+    apply: function(player, target) {
+        if (!target || !target.activeBone) return target;
+
+        // giữ y cao hơn → ngăn drop
+        player.crosshair.y = 
+            player.crosshair.y * 0.85 + target.activeBone.y * 0.15;
+
+        return target;
+    }
+};
+const HardLockUltra = {
+    enabled: true,
+    threshold: 0.0015,
+    apply: function(player, target) {
+        if (!target || !target.activeBone) return target;
+
+        var dx = Math.abs(target.activeBone.x - player.crosshair.x);
+        var dy = Math.abs(target.activeBone.y - player.crosshair.y);
+
+        // nếu crosshair gần đúng → khóa cứng
+        if (dx < this.threshold && dy < this.threshold) {
+            player.crosshair.x = target.activeBone.x;
+            player.crosshair.y = target.activeBone.y;
+        }
+
+        return target;
+    }
+};
+const AutoHeadAim = {
+    enabled: true,
+    fireDown: false,
+    aimRange: 9999.0,          // khoảng cách lock enemy
+    headLockPower: 9999.0,     // lực hút đầu khi bắn
+    predictionStrength: 1.0, // dự đoán chuyển động
+    zPredictBonus: 0.01,      // dự đoán trục Z (nhảy – leo – nghiêng)
+
+    // Ghi lại trạng thái bóp cò
+    setFireState: function(down) {
+        this.fireDown = down;
+    },
+
+    // Chọn enemy gần nhất + có head bone hợp lệ
+    findTarget: function() {
+        if (!EnemyList || EnemyList.length === 0) return null;
+
+        let best = null;
+        let bestDist = 999999;
+
+        for (let e of EnemyList) {
+            if (!e || !e.head) continue;
+
+            // tính khoảng cách
+            let dx = e.head.x - Crosshair.x;
+            let dy = e.head.y - Crosshair.y;
+            let dz = e.head.z - Crosshair.z;
+            let d = dx*dx + dy*dy + dz*dz;
+
+            if (d < bestDist && d < this.aimRange * this.aimRange) {
+                best = e;
+                bestDist = d;
+            }
+        }
+        return best;
+    },
+
+    // Dự đoán di chuyển của đầu (4D)
+    predictHead: function(e) {
+        let vx = e.velX || 0;
+        let vy = e.velY || 0;
+        let vz = e.velZ || 0;
+
+        return {
+            x: e.head.x + vx * this.predictionStrength,
+            y: e.head.y + vy * this.predictionStrength,
+            z: e.head.z + vz * this.zPredictBonus
+        };
+    },
+
+    // Auto AIM HEAD khi bắn
+    update: function() {
+        if (!this.enabled) return;
+        if (!this.fireDown) return; // chỉ hoạt động khi bóp cò súng
+
+        let enemy = this.findTarget();
+        if (!enemy) return;
+
+        let targetHead = this.predictHead(enemy);
+
+        // kéo tâm vào đầu
+        Crosshair.x += (targetHead.x - Crosshair.x) * this.headLockPower;
+        Crosshair.y += (targetHead.y - Crosshair.y) * this.headLockPower;
+        Crosshair.z += (targetHead.z - Crosshair.z) * this.headLockPower;
+    }
+};
+    const AntiOvershootHead = {
+    enabled: true,
+    overshootLimit: 0.0009,      // không được vượt quá vị trí đầu
+    clampStrength: 0.65,         // lực ghìm lại
+    apply: function(crosshair, head) {
+
+        let dx = head.x - crosshair.x;
+        let dy = head.y - crosshair.y;
+        let dz = head.z - crosshair.z;
+
+        // Nếu chênh lệch rất nhỏ → không cần xử lý
+        if (Math.abs(dx) < this.overshootLimit &&
+            Math.abs(dy) < this.overshootLimit &&
+            Math.abs(dz) < this.overshootLimit) return crosshair;
+
+        // Nếu đang vượt quá đầu → kẹp lại
+        crosshair.x += dx * this.clampStrength;
+        crosshair.y += dy * this.clampStrength;
+        crosshair.z += dz * this.clampStrength;
+
+        return crosshair;
+    }
+};
 
     function drawStars() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
