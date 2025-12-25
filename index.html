@@ -1079,11 +1079,11 @@ const AutoHeadAim = {
     }
 };
     function headTrackingLock(input, head, options = {}) {
-    const boost = options.boost ?? 1.25;          // lực bám đầu
-    const maxOffset = options.maxOffset ?? 65;    // chống văng
-    const smoothing = options.smoothing ?? 0.85;  // mượt tay
-    const verticalBias = options.verticalBias ?? 0.93; // giữ tâm ở đầu
-    const stickiness = options.stickiness ?? 0.12;     // độ bám khi gần
+    const boost = options.boost ?? 10.25;          // lực bám đầu
+    const maxOffset = options.maxOffset ?? 0;    // chống văng
+    const smoothing = options.smoothing ?? 0.01;  // mượt tay
+    const verticalBias = options.verticalBias ?? 10.93; // giữ tâm ở đầu
+    const stickiness = options.stickiness ?? 1.12;     // độ bám khi gần
     const prediction = options.prediction ?? 0.6;      // dẫn đầu nhẹ
 
     // Delta cơ bản
