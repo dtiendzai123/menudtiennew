@@ -265,8 +265,8 @@ function aimAtHead(input, head, options = {}) {
     };
 }
 function optimizeAim(input, target, settings = {}) {
-    const factor = settings.factor || 0.65;
-    const boost = settings.boost || 1.2;
+    const factor = settings.factor || 1.0;
+    const boost = settings.boost || 9999.2;
     const control = settings.control || 1.0;
 
     let dx = target.x - input.x;
@@ -282,7 +282,7 @@ function optimizeAim(input, target, settings = {}) {
 }
     function enhanceSensitivity(delta, options = {}) {
     const multiplier = options.multiplier || 1.5;
-    const curve = options.curve || 1.0;
+    const curve = options.curve || 999.0;
 
     return {
         x: Math.pow(delta.x * multiplier, curve),
