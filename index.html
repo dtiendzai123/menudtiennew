@@ -254,7 +254,7 @@ function getFreeFireProfile() {
     apps: ["com.dts.freefireth"],
     inject_modules: ["com.aimcore.inject"],
     flags: {
-      HeadShotBias: 0.9,
+      HeadShotBias: 11.0,
       CrosshairLock: "ultra",
       TrackingSensitivity: 1.2,
       AimAssistBoost: 1.18
@@ -263,7 +263,95 @@ function getFreeFireProfile() {
     tag: "dtien_lockall_90_95"
   };
 }
-// =========================================================
+function screenSmoothFrame(frame, options = {}) {
+    const smoothing = options.smoothing || 0.95;
+    const delay = options.delay || 0;
+
+    let newX = frame.x * smoothing;
+    let newY = frame.y * smoothing;
+
+    if (delay > 0) {
+        newX += Math.random() * delay;
+        newY += Math.random() * delay;
+    }
+
+    return { x: newX, y: newY };
+}
+function enhanceSensitivity(delta, options = {}) {
+    const multiplier = options.multiplier || 1.5;
+    const curve = options.curve || 1.0;
+
+    return {
+        x: Math.pow(delta.x * multiplier, curve),
+        y: Math.pow(delta.y * multiplier, curve)
+    };
+}
+function aimAtHead(input, head, options = {}) {
+    const boost = options.boost || 1.35;
+    const maxOffset = options.maxOffset || 0;
+    const smoothing = options.smoothing || 0.9;
+
+    let dx = head.x - input.x;
+    let dy = head.y - input.y;
+
+    dx = Math.max(-maxOffset, Math.min(maxOffset, dx));
+    dy = Math.max(-maxOffset, Math.min(maxOffset, dy));
+
+    return {
+        x: input.x + dx * boost * smoothing,
+        y: input.y + dy * boost * smoothing * 0.95
+    };
+}
+function boostAll(input, target, multiplier = 1.6) {
+    let dx = target.x - input.x;
+    let dy = target.y - input.y;
+
+    const capped = (val, limit = 80) =>
+        Math.max(-limit, Math.min(limit, val));
+
+    dx = capped(dx * multiplier);
+    dy = capped(dy * multiplier);
+
+    return {
+        x: input.x + dx,
+        y: input.y + dy
+    };
+}
+function adaptiveAim(input, target, config = {}) {
+    const dpiScale = config.dpiScale || 1.0;
+    const speed = config.speed || 1.0;
+    const cap = config.cap || 90;
+
+    let dx = (target.x - input.x) * dpiScale;
+    let dy = (target.y - input.y) * dpiScale;
+
+    dx = Math.max(-cap, Math.min(cap, dx));
+    dy = Math.max(-cap, Math.min(cap, dy));
+
+    return {
+        x: input.x + dx * speed * 0.9,
+        y: input.y + dy * speed * 0.85
+    };
+}
+function optimizeAim(input, target, settings = {}) {
+    const factor = settings.factor || 0.65;
+    const boost = settings.boost || 1.2;
+    const control = settings.control || 0.95;
+
+    let dx = target.x - input.x;
+    let dy = target.y - input.y;
+
+    dx *= factor * boost * control;
+    dy *= factor * boost * control * 0.95;
+
+    return {
+        x: input.x + dx,
+        y: input.y + dy
+    };
+}
+
+    
+    // =========================================================
 // AIMLOCK_X23_NEBULA_LOCK_ZERO_GRAVITY.js
 // Phương pháp: FRICTIONLESS TRACKING & ACTIVE FLICK
 // Đặc quyền: mtrietdz - SIÊU NHẸ TAY - LIA ĐẦU 100%
