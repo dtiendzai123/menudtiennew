@@ -450,7 +450,7 @@ const appProfiles = [
       AimAssistBoost: 1.18
     },
     status: "on",
-    tag: "vtam_lockall_90_95"
+    tag: "dtien_lockall_5"
   }
 ];
     function createStars() {
@@ -677,7 +677,113 @@ const headTransform = {
 const lock = headLock(cameraPos, enemyRoot, headTransform);
 console.log(lock);
 
+function precisionGripAim(input, target, config = {}) {
+    // ===== Default config mapping =====
+    const CFG = Object.assign({
+        PrecisionAimLock: 2,
+        VerticalAimFix: 1,
+        HorizontalAimFix: 1,
+        SmoothGripControl: 2,
+        DragStabilityBalancer: 2,
+        GripSensitivityTuning: 2,
+        AutoAimFix: 1,
+        DragSpeedAdjuster: 2,
+        DragControlLimiter: 1,
+        TouchGripResponse: 2,
+        DynamicGripReset: 2,
 
+        AutoCenteringFix: 2,
+        RealTimeAimLock: 2,
+        VerticalDragLimiter: 2,
+        HorizontalDragLimiter: 2,
+        HeadSnapLimiter: 1,
+        DragPrecisionTuner: 2,
+        GripCorrectionEnhancer: 2,
+        NoExcessiveGrip: 2,
+        BalancedDragControl: 2,
+        RealTimePrecisionSync: 2,
+
+        ZeroLateralMovement: 1,
+        ZeroVerticalDrift: 1,
+        NoAimSnapFixer: 2,
+        TouchSensitivityLock: 2,
+        DragReductionOptimizer: 2,
+        RecoilCorrectionSystem: 1,
+        DragAndDropSync: 1,
+        GripForceLimiter: 1,
+        ZeroFluctuationDrag: 2,
+
+        GripStabilizer: 2,
+        FastDragControl: 2,
+        TouchInputCorrection: 1,
+        DragSpeedLimiter: 2
+    }, config);
+
+    // ===== Helpers =====
+    const clamp = (v, l) => Math.max(-l, Math.min(l, v));
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    // ===== Delta =====
+    let dx = target.x - input.x;
+    let dy = target.y - input.y;
+
+    // ===== Zero drift fixes =====
+    if (CFG.ZeroLateralMovement) dx *= 0.95;
+    if (CFG.ZeroVerticalDrift) dy *= 0.92;
+
+    // ===== Precision lock (giảm lố) =====
+    const distance = Math.hypot(dx, dy);
+    const precisionFactor = 1 / (1 + distance * 0.08 * CFG.PrecisionAimLock);
+
+    dx *= precisionFactor;
+    dy *= precisionFactor;
+
+    // ===== Vertical / Horizontal fix =====
+    dx *= 1 - CFG.HorizontalAimFix * 0.05;
+    dy *= 1 - CFG.VerticalAimFix * 0.08;
+
+    // ===== Smooth grip =====
+    const smooth = 0.6 + CFG.SmoothGripControl * 0.1;
+    dx = lerp(0, dx, smooth);
+    dy = lerp(0, dy, smooth);
+
+    // ===== Drag limiter =====
+    const dragLimit = 35 / CFG.DragSpeedLimiter;
+    dx = clamp(dx, dragLimit);
+    dy = clamp(dy, dragLimit);
+
+    // ===== Head snap limiter =====
+    if (CFG.HeadSnapLimiter) {
+        dx *= 0.85;
+        dy *= 0.88;
+    }
+
+    // ===== Stability balancer =====
+    const stability = 1 / CFG.DragStabilityBalancer;
+    dx *= stability;
+    dy *= stability;
+
+    // ===== Anti excessive grip =====
+    if (CFG.NoExcessiveGrip) {
+        dx *= 0.9;
+        dy *= 0.9;
+    }
+
+    // ===== Real-time sync =====
+    const sync = 0.85 + CFG.RealTimePrecisionSync * 0.05;
+    dx *= sync;
+    dy *= sync;
+
+    return {
+        x: input.x + dx,
+        y: input.y + dy,
+        meta: {
+            precisionFactor,
+            stability,
+            smooth
+        }
+    };
+}
 
 
 
