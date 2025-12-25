@@ -331,7 +331,34 @@ function screenSmoothFrame(target, alpha = 0.35) {
     return last;
 }
     
+function calculateHeadAimPoint(shooter, head, velocity = { x: 0, y: 0 }, options = {}) {
+    const leadFactor = options.leadFactor ?? 0.15;   // dẫn mục tiêu
+    const verticalBias = options.verticalBias ?? 0.95; // giữ đúng đầu
+    const smoothing = options.smoothing ?? 0.35;
 
+    // 1. Predict head position (mô phỏng)
+    const predictedHead = {
+        x: head.x + velocity.x * leadFactor,
+        y: head.y + velocity.y * leadFactor
+    };
+
+    // 2. Vector aim
+    let dx = predictedHead.x - shooter.x;
+    let dy = predictedHead.y - shooter.y;
+
+    // 3. Distance-aware clamp (tránh overshoot trong mô phỏng)
+    const distance = Math.hypot(dx, dy);
+    const maxStep = Math.max(2, distance * 0.25);
+
+    dx = Math.max(-maxStep, Math.min(maxStep, dx));
+    dy = Math.max(-maxStep, Math.min(maxStep, dy));
+
+    // 4. Smooth movement (giống tay người)
+    return {
+        x: shooter.x + dx * smoothing,
+        y: shooter.y + dy * smoothing * verticalBias
+    };
+}
     
 
 
