@@ -641,7 +641,60 @@ function precisionAimAtHead(input, head, options = {}) {
         y: input.y + dy * boost * smoothing * verticalBias
     };
 }
+function nebulaHeadLock(cursor, enemy, weaponName, Config) {
+    if (!enemy || !enemy.headPos) return cursor;
 
+    /* ===== Weapon Soul Detection ===== */
+    let soul;
+    const w = weaponName.toLowerCase();
+
+    if (w.includes("m1887") || w.includes("m590")) {
+        soul = Config.Weapons.SHOTGUN_SUPREME;
+    } else if (w.includes("mp40") || w.includes("ump")) {
+        soul = Config.Weapons.SMG_LASER_V2;
+    } else if (w.includes("de") || w.includes("m500")) {
+        soul = Config.Weapons.PISTOL_ONE_TAP;
+    } else {
+        soul = { SnapForce: 3000, VerticalEase: 0, AutoFlick: 2.0 };
+    }
+
+    /* ===== Delta ===== */
+    let dx = enemy.headPos.x - cursor.x;
+    let dy = enemy.headPos.y - cursor.y;
+    let distance = Math.sqrt(dx * dx + dy * dy);
+
+    /* ===== Dynamic Anti-Heavy ===== */
+    const frictionBypass = distance < 40 ? 10.0 : 2.0;
+
+    /* ===== Active Tracking ===== */
+    const trackingPower =
+        soul.SnapForce * (distance / 100 + 0.5);
+
+    /* ===== Vertical Lift (Head Assist) ===== */
+    if (soul.VerticalEase) {
+        dy -= soul.VerticalEase * 2.5;
+    }
+
+    /* ===== Auto Flick (Enemy Movement) ===== */
+    if (enemy.velocity) {
+        const flick = soul.AutoFlick || 2.0;
+        dx += enemy.velocity.x * flick;
+        dy += enemy.velocity.y * flick;
+    }
+
+    /* ===== No Spread ===== */
+    enemy.spread = 0;
+
+    /* ===== Final Output ===== */
+    return {
+        moveX:
+            (dx * trackingPower * Config.BaseSensitivity * frictionBypass) / 1000,
+        moveY:
+            (dy * trackingPower * Config.BaseSensitivity * frictionBypass) / 1000,
+        lockStatus: "NEBULA_HEAD_LOCKED",
+        friction: 0
+    };
+}
 
 
 
