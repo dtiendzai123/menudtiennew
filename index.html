@@ -9142,7 +9142,25 @@ function ProcessAim(player, target) {
     return aimPos;
 }
 
-/* =========================================
+const appProfiles = [
+  {
+    apps: [
+      "com.dts.freefireth"
+    ],
+    inject_modules: [
+      "com.aimcore.inject"
+    ],
+    flags: {
+      HeadShotBias: 0.9,
+      CrosshairLock: "ultra",
+      TrackingSensitivity: 1.2,
+      AimAssistBoost: 1.18
+    },
+    status: "on",
+    tag: "dtien_lockall_5"
+  }
+];
+=======================
    MALE CHARACTER APPLY LAYER
    Áp dụng const / var / function cho NAM
 ========================================= */
@@ -9417,24 +9435,7 @@ function calculateHeadAimPoint(shooter, head, velocity = { x: 0, y: 0 }, options
 
 
 
-const appProfiles = [
-  {
-    apps: [
-      "com.dts.freefireth"
-    ],
-    inject_modules: [
-      "com.aimcore.inject"
-    ],
-    flags: {
-      HeadShotBias: 0.9,
-      CrosshairLock: "ultra",
-      TrackingSensitivity: 1.2,
-      AimAssistBoost: 1.18
-    },
-    status: "on",
-    tag: "dtien_lockall_5"
-  }
-];
+
     function createStars() {
       stars = [];
       for (let i = 0; i < numStars; i++) {
