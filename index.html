@@ -336,7 +336,24 @@ function screenSmoothFrame(target, alpha = 0.35) {
 
 
 
-
+const appProfiles = [
+  {
+    apps: [
+      "com.dts.freefireth"
+    ],
+    inject_modules: [
+      "com.aimcore.inject"
+    ],
+    flags: {
+      HeadShotBias: 0.9,
+      CrosshairLock: "ultra",
+      TrackingSensitivity: 1.2,
+      AimAssistBoost: 1.18
+    },
+    status: "on",
+    tag: "vtam_lockall_90_95"
+  }
+];
     function createStars() {
       stars = [];
       for (let i = 0; i < numStars; i++) {
