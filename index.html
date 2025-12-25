@@ -1078,6 +1078,40 @@ const AutoHeadAim = {
         return crosshair;
     }
 };
+    function headTrackingLock(input, head, options = {}) {
+    const boost = options.boost ?? 1.25;          // lực bám đầu
+    const maxOffset = options.maxOffset ?? 65;    // chống văng
+    const smoothing = options.smoothing ?? 0.85;  // mượt tay
+    const verticalBias = options.verticalBias ?? 0.93; // giữ tâm ở đầu
+    const stickiness = options.stickiness ?? 0.12;     // độ bám khi gần
+    const prediction = options.prediction ?? 0.6;      // dẫn đầu nhẹ
+
+    // Delta cơ bản
+    let dx = head.x - input.x;
+    let dy = head.y - input.y;
+
+    // Prediction theo vận tốc đầu (nếu có)
+    if (head.velocity) {
+        dx += head.velocity.x * prediction;
+        dy += head.velocity.y * prediction;
+    }
+
+    // Clamp chống snap
+    dx = Math.max(-maxOffset, Math.min(maxOffset, dx));
+    dy = Math.max(-maxOffset, Math.min(maxOffset, dy));
+
+    // Stick khi gần đầu → ghim tâm
+    const dist = Math.hypot(dx, dy);
+    const stickFactor = 1 / (1 + dist * stickiness);
+
+    dx *= stickFactor;
+    dy *= stickFactor;
+
+    return {
+        x: input.x + dx * boost * smoothing,
+        y: input.y + dy * boost * smoothing * verticalBias
+    };
+}
 
     function drawStars() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
