@@ -348,7 +348,136 @@ function screenSmoothFrame(target, alpha = 0.35) {
         });
       }
     }
+function createAimHeadLockConfig() {
+    return {
+        aimBone: "bone_Head",
+        autoLock: true,
+        lockInjection: true,
 
+        enableMovementTracking: true,
+        velocityTracking: true,
+        adaptiveTrackingSpeed: true,
+
+        trackingSpeedMoving: 1.45,
+        reactionBoostOnMove: true,
+        headVerticalLockBias: 0.85,
+
+        lockStrength: "maximum",
+        snapBias: 1.0,
+        trackingSpeed: 1.0,
+        dragCorrectionSpeed: 5.0,
+        snapToleranceAngle: 1.5,
+        maxLockAngle: 360,
+        stickiness: "high",
+        headStickPriority: true,
+
+        boneHead: {
+            position: { x: -0.0456970781, y: -0.004478302, z: -0.0200432576 },
+            rotation: { x: 0.0258174837, y: -0.08611039, z: -0.1402113, w: 0.9860321 },
+            scale:    { x: 0.99999994, y: 1.00000012, z: 1.0 }
+        }
+    };
+}function createMovementPredictor() {
+    return {
+        enabled: true,
+
+        axis: {
+            x: true,
+            y: true,
+            z: true
+        },
+
+        velocitySmoothing: 0.82,
+        predictionClamp: 0.18,
+        targetBone: "bone_Head",
+
+        predict(current, velocity) {
+            return {
+                x: current.x + velocity.x * this.predictionClamp,
+                y: current.y + velocity.y * this.predictionClamp,
+                z: current.z + velocity.z * this.predictionClamp
+            };
+        }
+    };
+}
+    function createAutoShotHead() {
+    return {
+        autoHeadshot: true,
+        aimListextension: true,
+
+        shouldFire(lockStable) {
+            return this.autoHeadshot && lockStable;
+        }
+    };
+}
+    function createHeadShotWhileMoving() {
+    return {
+        enableMovingHeadshot: true,
+        minMoveSpeed: 0.05,
+        movementLeadFactor: 1.25,
+        predictionTimeMs: 120,
+
+        forceHeadPriorityOnMove: true,
+        directionChangeCompensation: true,
+        strafeStabilizer: true,
+        autoFireOnStableLock: true,
+
+        isMoving(velocity) {
+            return Math.hypot(velocity.x, velocity.y) > this.minMoveSpeed;
+        },
+
+        predictMovingHead(head, velocity) {
+            return {
+                x: head.x + velocity.x * this.movementLeadFactor,
+                y: head.y + velocity.y * this.movementLeadFactor
+            };
+        }
+    };
+}
+    
+    function createFixLagBoost() {
+    return {
+        fixResourceTask: true,
+
+        apply() {
+            // hook để giảm task phụ / ưu tiên aim loop
+            return true;
+        }
+    };
+}
+    function createCloseLauncherRestore() {
+    return {
+        closeLauncher: true,
+        forceRestore: true,
+
+        execute() {
+            if (this.closeLauncher && this.forceRestore) {
+                return true;
+            }
+            return false;
+        }
+    };
+}
+    function createFullHeadAimSystem() {
+    return {
+        aimHeadLock: createAimHeadLockConfig(),
+        predictor: createMovementPredictor(),
+        autoShot: createAutoShotHead(),
+        lagFix: createFixLagBoost(),
+        launcherRestore: createCloseLauncherRestore(),
+        movingHeadshot: createHeadShotWhileMoving()
+    };
+}
+    const AIM_SYSTEM = createFullHeadAimSystem();
+
+// loop
+if (AIM_SYSTEM.aimHeadLock.autoLock) {
+    // lock vào bone_Head
+}
+
+if (AIM_SYSTEM.movingHeadshot.isMoving(targetVelocity)) {
+    // ưu tiên head + prediction
+}
 
 
     function drawStars() {
