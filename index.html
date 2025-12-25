@@ -277,20 +277,25 @@ function aimAtHead(input, head, options = {}) {
     return emaSmooth(target, smoothing);
 }
 function optimizeAim(input, target, settings = {}) {
-    const factor = settings.factor || 1.0;
-    const boost = settings.boost || 9999.2;
-    const control = settings.control || 1.0;
+    const boost = settings.boost ?? 6.0;
+    const smoothing = settings.smoothing ?? 0.35;
 
     let dx = target.x - input.x;
     let dy = target.y - input.y;
 
-    dx *= factor * boost * control;
-    dy *= factor * boost * control * 0.95;
+    const distance = Math.hypot(dx, dy);
+
+    const clamp = Math.max(2, distance * 0.3);
+    dx = Math.max(-clamp, Math.min(clamp, dx));
+    dy = Math.max(-clamp, Math.min(clamp, dy));
+
+    const scale = Math.min(1, distance / 120);
 
     return {
-        x: input.x + dx,
-        y: input.y + dy
+        x: input.x + dx * boost * scale * smoothing,
+        y: input.y + dy * boost * scale * smoothing * 0.97
     };
+}
 }
     function enhanceSensitivity(delta, options = {}) {
     const multiplier = options.multiplier || 1.5;
