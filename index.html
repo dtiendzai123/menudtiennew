@@ -615,173 +615,30 @@ function boostAllSmooth(input, target, options = {}) {
         y: input.y + dy * smoothing
     };
 }
-function headLock(cameraPos, targetRootPos, headTransform) {
-    // ===== Vector helpers =====
-    const add = (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
-    const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
-    const scale = (v, s) => ({ x: v.x * s, y: v.y * s, z: v.z * s });
-    const normalize = (v) => {
-        const len = Math.hypot(v.x, v.y, v.z) || 1;
-        return scale(v, 1 / len);
-    };
+function precisionAimAtHead(input, head, options = {}) {
+    const boost = options.boost ?? 1.15;          // lực kéo (nhỏ → không văng)
+    const maxOffset = options.maxOffset ?? 60;    // clamp chống lố
+    const smoothing = options.smoothing ?? 0.85;  // mượt như tay
+    const verticalBias = options.verticalBias ?? 0.92; // giữ tâm không tụt
+    const precision = options.precision ?? 0.08; // ghim tâm gần mục tiêu
 
-    // ===== Quaternion rotate =====
-    const rotateByQuat = (v, q) => {
-        const { x, y, z } = v;
-        const { x: qx, y: qy, z: qz, w: qw } = q;
+    let dx = head.x - input.x;
+    let dy = head.y - input.y;
 
-        const ix =  qw * x + qy * z - qz * y;
-        const iy =  qw * y + qz * x - qx * z;
-        const iz =  qw * z + qx * y - qy * x;
-        const iw = -qx * x - qy * y - qz * z;
+    // Clamp động → chống snap mạnh
+    dx = Math.max(-maxOffset, Math.min(maxOffset, dx));
+    dy = Math.max(-maxOffset, Math.min(maxOffset, dy));
 
-        return {
-            x: ix * qw + iw * -qx + iy * -qz - iz * -qy,
-            y: iy * qw + iw * -qy + iz * -qx - ix * -qz,
-            z: iz * qw + iw * -qz + ix * -qy - iy * -qx
-        };
-    };
-
-    // ===== 1. Scale offset =====
-    const offset = {
-        x: headTransform.position.x * headTransform.scale.x,
-        y: headTransform.position.y * headTransform.scale.y,
-        z: headTransform.position.z * headTransform.scale.z
-    };
-
-    // ===== 2. Rotate offset =====
-    const rotatedOffset = rotateByQuat(offset, headTransform.rotation);
-
-    // ===== 3. World head position =====
-    const headWorldPos = add(targetRootPos, rotatedOffset);
-
-    // ===== 4. Aim direction =====
-    const aimDirection = normalize(
-        sub(headWorldPos, cameraPos)
-    );
-
-    return {
-        headWorldPosition: headWorldPos,
-        aimDirection: aimDirection
-    };
-}
-    const cameraPos = { x: 0, y: 2.0, z: 0 };
-const enemyRoot = { x: 0, y: 0, z: 0 };
-
-const headTransform = {
-    position: { x: -0.045697, y: -0.004478, z: -0.020043 },
-    rotation: { x: 0.025817, y: -0.08611, z: -0.140211, w: 0.986032 },
-    scale: { x: 1.0, y: 1.0, z: 1.0 }
-};
-
-const lock = headLock(cameraPos, enemyRoot, headTransform);
-console.log(lock);
-
-function precisionGripAim(input, target, config = {}) {
-    // ===== Default config mapping =====
-    const CFG = Object.assign({
-        PrecisionAimLock: 2,
-        VerticalAimFix: 1,
-        HorizontalAimFix: 1,
-        SmoothGripControl: 2,
-        DragStabilityBalancer: 2,
-        GripSensitivityTuning: 2,
-        AutoAimFix: 1,
-        DragSpeedAdjuster: 2,
-        DragControlLimiter: 1,
-        TouchGripResponse: 2,
-        DynamicGripReset: 2,
-
-        AutoCenteringFix: 2,
-        RealTimeAimLock: 2,
-        VerticalDragLimiter: 2,
-        HorizontalDragLimiter: 2,
-        HeadSnapLimiter: 1,
-        DragPrecisionTuner: 2,
-        GripCorrectionEnhancer: 2,
-        NoExcessiveGrip: 2,
-        BalancedDragControl: 2,
-        RealTimePrecisionSync: 2,
-
-        ZeroLateralMovement: 1,
-        ZeroVerticalDrift: 1,
-        NoAimSnapFixer: 2,
-        TouchSensitivityLock: 2,
-        DragReductionOptimizer: 2,
-        RecoilCorrectionSystem: 1,
-        DragAndDropSync: 1,
-        GripForceLimiter: 1,
-        ZeroFluctuationDrag: 2,
-
-        GripStabilizer: 2,
-        FastDragControl: 2,
-        TouchInputCorrection: 1,
-        DragSpeedLimiter: 2
-    }, config);
-
-    // ===== Helpers =====
-    const clamp = (v, l) => Math.max(-l, Math.min(l, v));
-    const lerp = (a, b, t) => a + (b - a) * t;
-
-    // ===== Delta =====
-    let dx = target.x - input.x;
-    let dy = target.y - input.y;
-
-    // ===== Zero drift fixes =====
-    if (CFG.ZeroLateralMovement) dx *= 0.95;
-    if (CFG.ZeroVerticalDrift) dy *= 0.92;
-
-    // ===== Precision lock (giảm lố) =====
-    const distance = Math.hypot(dx, dy);
-    const precisionFactor = 1 / (1 + distance * 0.08 * CFG.PrecisionAimLock);
+    // Ghim tâm khi gần mục tiêu (giảm lố)
+    const dist = Math.hypot(dx, dy);
+    const precisionFactor = 1 / (1 + dist * precision);
 
     dx *= precisionFactor;
     dy *= precisionFactor;
 
-    // ===== Vertical / Horizontal fix =====
-    dx *= 1 - CFG.HorizontalAimFix * 0.05;
-    dy *= 1 - CFG.VerticalAimFix * 0.08;
-
-    // ===== Smooth grip =====
-    const smooth = 0.6 + CFG.SmoothGripControl * 0.1;
-    dx = lerp(0, dx, smooth);
-    dy = lerp(0, dy, smooth);
-
-    // ===== Drag limiter =====
-    const dragLimit = 35 / CFG.DragSpeedLimiter;
-    dx = clamp(dx, dragLimit);
-    dy = clamp(dy, dragLimit);
-
-    // ===== Head snap limiter =====
-    if (CFG.HeadSnapLimiter) {
-        dx *= 0.85;
-        dy *= 0.88;
-    }
-
-    // ===== Stability balancer =====
-    const stability = 1 / CFG.DragStabilityBalancer;
-    dx *= stability;
-    dy *= stability;
-
-    // ===== Anti excessive grip =====
-    if (CFG.NoExcessiveGrip) {
-        dx *= 0.9;
-        dy *= 0.9;
-    }
-
-    // ===== Real-time sync =====
-    const sync = 0.85 + CFG.RealTimePrecisionSync * 0.05;
-    dx *= sync;
-    dy *= sync;
-
     return {
-        x: input.x + dx,
-        y: input.y + dy,
-        meta: {
-            precisionFactor,
-            stability,
-            smooth
-        }
+        x: input.x + dx * boost * smoothing,
+        y: input.y + dy * boost * smoothing * verticalBias
     };
 }
 
