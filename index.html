@@ -297,46 +297,39 @@ function optimizeAim(input, target, settings = {}) {
     };
 }
 }
-    function enhanceSensitivity(delta, options = {}) {
-    const multiplier = options.multiplier || 1.5;
-    const curve = options.curve || 999.0;
-
+    function enhanceSensitivity(delta, strength = 1.4) {
     return {
-        x: Math.pow(delta.x * multiplier, curve),
-        y: Math.pow(delta.y * multiplier, curve)
+        x: Math.sign(delta.x) * Math.pow(Math.abs(delta.x), 0.85) * strength,
+        y: Math.sign(delta.y) * Math.pow(Math.abs(delta.y), 0.85) * strength
     };
 }
-function fixOvershoot(input, output, clamp = 0.7, threshold = 50) {
+    
+    function fixOvershoot(input, output, max = 0.6) {
     const dx = output.x - input.x;
     const dy = output.y - input.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
+    const distance = Math.hypot(dx, dy);
 
-    const factor = distance > threshold ? clamp : 1.0;
+    const scale = Math.min(1, max + distance * 0.002);
 
     return {
-        x: input.x + dx * factor,
-        y: input.y + dy * factor
+        x: input.x + dx * scale,
+        y: input.y + dy * scale
     };
 }
-function screenSmoothFrame(frame, options = {}) {
-    const smoothing = options.smoothing || 0.95;
-    const delay = options.delay || 0;
+    
+let last = null;
 
-    let newX = frame.x * smoothing;
-    let newY = frame.y * smoothing;
-
-    if (delay > 0) {
-        newX += Math.random() * delay;
-        newY += Math.random() * delay;
+function screenSmoothFrame(target, alpha = 0.35) {
+    if (!last) {
+        last = { ...target };
+        return target;
     }
 
-    return { x: newX, y: newY };
+    last.x += (target.x - last.x) * alpha;
+    last.y += (target.y - last.y) * alpha;
+
+    return last;
 }
-
-
-
-    
-
     
 
     
