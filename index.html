@@ -695,7 +695,30 @@ function nebulaHeadLock(cursor, enemy, weaponName, Config) {
         friction: 0
     };
 }
+const MagnetHeadLock_Instant = {
+    enabled: true,
 
+    instantStrength: 999.5,
+    snapThreshold: 0.01,
+
+    apply: function (aimPos, target, player) {
+        if (!this.enabled || !target || !target.headPos) return aimPos;
+
+        let head = target.headPos;
+        let dx = head.x - aimPos.x;
+        let dy = head.y - aimPos.y;
+        let dist = Math.hypot(dx, dy);
+
+        if (dist < this.snapThreshold) {
+            return { x: head.x, y: head.y };
+        }
+
+        aimPos.x += dx * this.instantStrength;
+        aimPos.y += dy * this.instantStrength;
+
+        return aimPos;
+    }
+};
 
 
     
