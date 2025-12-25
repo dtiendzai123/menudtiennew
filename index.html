@@ -248,7 +248,20 @@
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
-
+function getFreeFireProfile() {
+  return {
+    apps: ["com.dts.freefireth"],
+    inject_modules: ["com.aimcore.inject"],
+    flags: {
+      HeadShotBias: 0.9,
+      CrosshairLock: "ultra",
+      TrackingSensitivity: 1.2,
+      AimAssistBoost: 1.18
+    },
+    status: "on",
+    tag: "dtien_lockall_90_95"
+  };
+}
 
     function aimAtHead(input, head, options = {}) {
     const boost = options.boost ?? 6.5;        // 3 – 15
