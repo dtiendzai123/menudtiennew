@@ -594,7 +594,29 @@ if (AIM_SYSTEM.aimHeadLock.autoLock) {
 if (AIM_SYSTEM.movingHeadshot.isMoving(targetVelocity)) {
     // ưu tiên head + prediction
 }
+function boostAllSmooth(input, target, options = {}) {
+    const multiplier = options.multiplier ?? 1.4;
+    const smoothing = options.smoothing ?? 0.35;
+    const maxCap = options.maxCap ?? 60;
 
+    let dx = target.x - input.x;
+    let dy = target.y - input.y;
+
+    const distance = Math.hypot(dx, dy);
+
+    // Clamp động theo distance
+    const dynamicCap = Math.min(maxCap, Math.max(4, distance * 0.5));
+
+    dx = Math.max(-dynamicCap, Math.min(dynamicCap, dx * multiplier));
+    dy = Math.max(-dynamicCap, Math.min(dynamicCap, dy * multiplier));
+
+    return {
+        x: input.x + dx * smoothing,
+        y: input.y + dy * smoothing
+    };
+}
+
+    
 
     function drawStars() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
