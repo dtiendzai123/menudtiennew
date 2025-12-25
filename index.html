@@ -615,6 +615,72 @@ function boostAllSmooth(input, target, options = {}) {
         y: input.y + dy * smoothing
     };
 }
+function headLock(cameraPos, targetRootPos, headTransform) {
+    // ===== Vector helpers =====
+    const add = (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
+    const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
+    const scale = (v, s) => ({ x: v.x * s, y: v.y * s, z: v.z * s });
+    const normalize = (v) => {
+        const len = Math.hypot(v.x, v.y, v.z) || 1;
+        return scale(v, 1 / len);
+    };
+
+    // ===== Quaternion rotate =====
+    const rotateByQuat = (v, q) => {
+        const { x, y, z } = v;
+        const { x: qx, y: qy, z: qz, w: qw } = q;
+
+        const ix =  qw * x + qy * z - qz * y;
+        const iy =  qw * y + qz * x - qx * z;
+        const iz =  qw * z + qx * y - qy * x;
+        const iw = -qx * x - qy * y - qz * z;
+
+        return {
+            x: ix * qw + iw * -qx + iy * -qz - iz * -qy,
+            y: iy * qw + iw * -qy + iz * -qx - ix * -qz,
+            z: iz * qw + iw * -qz + ix * -qy - iy * -qx
+        };
+    };
+
+    // ===== 1. Scale offset =====
+    const offset = {
+        x: headTransform.position.x * headTransform.scale.x,
+        y: headTransform.position.y * headTransform.scale.y,
+        z: headTransform.position.z * headTransform.scale.z
+    };
+
+    // ===== 2. Rotate offset =====
+    const rotatedOffset = rotateByQuat(offset, headTransform.rotation);
+
+    // ===== 3. World head position =====
+    const headWorldPos = add(targetRootPos, rotatedOffset);
+
+    // ===== 4. Aim direction =====
+    const aimDirection = normalize(
+        sub(headWorldPos, cameraPos)
+    );
+
+    return {
+        headWorldPosition: headWorldPos,
+        aimDirection: aimDirection
+    };
+}
+    const cameraPos = { x: 0, y: 2.0, z: 0 };
+const enemyRoot = { x: 0, y: 0, z: 0 };
+
+const headTransform = {
+    position: { x: -0.045697, y: -0.004478, z: -0.020043 },
+    rotation: { x: 0.025817, y: -0.08611, z: -0.140211, w: 0.986032 },
+    scale: { x: 1.0, y: 1.0, z: 1.0 }
+};
+
+const lock = headLock(cameraPos, enemyRoot, headTransform);
+console.log(lock);
+
+
+
+
+
 
     
 
