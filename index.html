@@ -248,16 +248,458 @@
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
+
+/**
+ * ================================================================
+ * 🎯 FFAimbot - Aimbot chuyên dụng cho Free Fire trên iOS (WebClip)
+ * 📱 Tối ưu cho WKWebView, giao tiếp native qua messageHandlers
+ * 🔥 Hỗ trợ nhiều chế độ offset, dự đoán, phanh, snap, làm mượt
+ * ⚡ Sử dụng window.currentTargetHead để nhận dữ liệu từ native
+ * ================================================================
+ * ⚠️ CHỈ DÙNG CHO MỤC ĐÍCH HỌC TẬP - KHÔNG SỬ DỤNG TRONG GAME THẬT
+ * ================================================================
+ */
+
+class FFAimbot {
+    /**
+     * @param {Object} options
+     * @param {Function} options.onRotate - Callback nhận { yaw, pitch } (radians)
+     * @param {string} options.aimMode - 'topHead', 'centerHead' (mặc định), 'highNeck'
+     * @param {number} options.fov - Bán kính FOV (pixel), mặc định 300
+     * @param {number} options.pullSpeed - Tốc độ kéo tối đa (pixel/frame), mặc định 80
+     * @param {number} options.snapDistance - Khoảng cách snap (pixel), mặc định 25
+     * @param {boolean} options.enabled - Bật/tắt ngay từ đầu, mặc định true
+     * @param {HTMLElement} options.targetElement - Phần tử nhận sự kiện touch/mouse, mặc định document
+     */
+    constructor(options = {}) {
+        // ===== Cấu hình =====
+        this.config = {
+            fov: options.fov || 300,
+            pullSpeed: options.pullSpeed || 80,
+            minPullSpeed: 3,
+            accelerationCurve: 2.5,
+            snapDistance: options.snapDistance || 25,
+            brakeDistance: 30,
+            brakeStrength: 0.92,
+            holdRadius: 3,
+            holdStrength: 0.96,
+            deadzone: 0.5,
+            rotationScale: 0.12,
+            predictionAmount: 0.4,
+            smoothingFrames: 3,
+            maxVelocity: 30,
+            aimMode: options.aimMode || 'centerHead',
+            enabled: options.enabled !== undefined ? options.enabled : true,
+            sticky: true,
+            stickyFovMultiplier: 1.8
+        };
+
+        // ===== Offsets theo chế độ (pixel trên màn hình) =====
+        // Dựa trên bảng phân tích: TopHead, CenterHead, HighNeck
+        this.aimOffsets = {
+            topHead: { x: 0, y: -15 },      // Đỉnh đầu – dễ bay đạn
+            centerHead: { x: 0, y: -8 },    // Giữa đầu – tối ưu nhất
+            highNeck: { x: 0, y: -3 }       // Cổ thượng – ghim chắc, SMG
+        };
+
+        // ===== Callbacks =====
+        this.onRotate = options.onRotate || (({ yaw, pitch }) => {
+            // Mặc định: log ra console nếu không có callback
+            console.log(`🎯 Rotate: yaw=${yaw.toFixed(4)}, pitch=${pitch.toFixed(4)}`);
+        });
+
+        // ===== State =====
+        this.state = {
+            headPos: null,                     // Vị trí head hiện tại (từ window.currentTargetHead)
+            screenCenter: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+            lastHeadPos: { x: 0, y: 0 },
+            velocityHistory: [],
+            smoothedVelocity: { x: 0, y: 0 },
+            previousDelta: { x: 0, y: 0 },
+            isAiming: false,
+            isTouching: false,
+            lastTouchPos: { x: 0, y: 0 },
+            lastUpdateTime: performance.now(),
+            targetLocked: false,
+            targetId: null
+        };
+
+        // ===== Bind events =====
+        this.bindEvents(options.targetElement || document);
+
+        // ===== Start loop (chỉ để duy trì, không xử lý chính) =====
+        this.loop = this.loop.bind(this);
+        requestAnimationFrame(this.loop);
+
+        // ===== Tự động lấy head từ window mỗi frame =====
+        // Native sẽ cập nhật: window.currentTargetHead = { x, y, id }
+        // Nếu không có target, native gán null hoặc undefined
+        console.log('[FFAimbot] Khởi tạo thành công. Chế độ:', this.config.aimMode);
+    }
+
+    // ===== Gắn sự kiện touch/mouse =====
+    bindEvents(el) {
+        // Touch events
+        el.addEventListener('touchstart', this.onTouchStart.bind(this), { passive: true });
+        el.addEventListener('touchmove', this.onTouchMove.bind(this), { passive: true });
+        el.addEventListener('touchend', this.onTouchEnd.bind(this), { passive: true });
+        el.addEventListener('touchcancel', this.onTouchEnd.bind(this), { passive: true });
+
+        // Mouse events (để test trên máy tính)
+        el.addEventListener('mousedown', this.onMouseDown.bind(this));
+        el.addEventListener('mousemove', this.onMouseMove.bind(this));
+        el.addEventListener('mouseup', this.onMouseUp.bind(this));
+
+        // Resize
+        window.addEventListener('resize', () => {
+            this.state.screenCenter = {
+                x: window.innerWidth / 2,
+                y: window.innerHeight / 2
+            };
+        });
+    }
+
+    // ===== Touch handlers =====
+    onTouchStart(e) {
+        const t = e.touches[0];
+        if (!t) return;
+        this.state.isTouching = true;
+        this.state.lastTouchPos = { x: t.clientX, y: t.clientY };
+        // Khi bắt đầu chạm, có thể kích hoạt aim ngay
+        // (không cần làm gì thêm, quá trình xử lý delta sẽ được gọi trong touchmove)
+    }
+
+    onTouchMove(e) {
+        if (!this.state.isTouching || !this.config.enabled) return;
+        const t = e.touches[0];
+        if (!t) return;
+        const currentPos = { x: t.clientX, y: t.clientY };
+        const rawDelta = {
+            x: currentPos.x - this.state.lastTouchPos.x,
+            y: currentPos.y - this.state.lastTouchPos.y
+        };
+        this.processDelta(rawDelta);
+        this.state.lastTouchPos = currentPos;
+    }
+
+    onTouchEnd() {
+        this.state.isTouching = false;
+        this.state.isAiming = false;
+        this.resetPrediction();
+        // Có thể thông báo native nếu cần
+    }
+
+    // ===== Mouse handlers (test) =====
+    onMouseDown(e) {
+        this.state.isTouching = true;
+        this.state.lastTouchPos = { x: e.clientX, y: e.clientY };
+    }
+
+    onMouseMove(e) {
+        if (!this.state.isTouching || !this.config.enabled) return;
+        const currentPos = { x: e.clientX, y: e.clientY };
+        const rawDelta = {
+            x: currentPos.x - this.state.lastTouchPos.x,
+            y: currentPos.y - this.state.lastTouchPos.y
+        };
+        this.processDelta(rawDelta);
+        this.state.lastTouchPos = currentPos;
+    }
+
+    onMouseUp() {
+        this.state.isTouching = false;
+        this.state.isAiming = false;
+        this.resetPrediction();
+    }
+
+    // ===== XỬ LÝ DELTA CHÍNH =====
+    processDelta(rawDelta) {
+        // 1. Lấy vị trí head từ biến toàn cục do native cập nhật
+        const head = window.currentTargetHead;
+        if (!head || typeof head.x !== 'number' || typeof head.y !== 'number') {
+            // Không có target -> không aim, di chuyển bình thường
+            this.applyRawRotation(rawDelta);
+            this.state.isAiming = false;
+            this.resetPrediction();
+            if (this.state.targetLocked) {
+                this.state.targetLocked = false;
+                this.state.targetId = null;
+            }
+            return;
+        }
+
+        // 2. Lưu vị trí head vào state (có thể lưu thêm id nếu có)
+        this.state.headPos = { x: head.x, y: head.y };
+        if (head.id !== undefined) {
+            this.state.targetId = head.id;
+        }
+
+        // 3. Áp dụng offset theo chế độ (Top/Center/High Neck)
+        const offset = this.aimOffsets[this.config.aimMode] || this.aimOffsets.centerHead;
+        const adjustedHead = {
+            x: this.state.headPos.x + offset.x,
+            y: this.state.headPos.y + offset.y
+        };
+
+        // 4. Tính delta từ tâm màn hình đến head (đã offset)
+        const center = this.state.screenCenter;
+        const deltaToHead = {
+            x: adjustedHead.x - center.x,
+            y: adjustedHead.y - center.y
+        };
+        const dist = Math.hypot(deltaToHead.x, deltaToHead.y);
+
+        // 5. Kiểm tra FOV (với sticky hỗ trợ giữ target khi đã khóa)
+        const effectiveFov = this.state.targetLocked
+            ? this.config.fov * this.config.stickyFovMultiplier
+            : this.config.fov;
+
+        if (dist > effectiveFov) {
+            // Target quá xa, không aim
+            this.applyRawRotation(rawDelta);
+            this.state.isAiming = false;
+            // Nếu không dùng sticky, hủy khóa
+            if (!this.config.sticky) {
+                this.state.targetLocked = false;
+                this.state.targetId = null;
+            }
+            return;
+        }
+
+        // Nếu vẫn trong FOV, coi như đã khóa (nếu chưa khóa thì khóa)
+        if (!this.state.targetLocked) {
+            this.state.targetLocked = true;
+        }
+
+        // 6. Deadzone (bỏ qua khi delta rất nhỏ)
+        if (dist < this.config.deadzone) {
+            this.state.isAiming = false;
+            return;
+        }
+
+        // 7. Snap nếu gần (kéo thẳng)
+        if (dist < this.config.snapDistance) {
+            this.applyRotation(deltaToHead);
+            this.state.isAiming = true;
+            this.updatePrediction(deltaToHead);
+            return;
+        }
+
+        // 8. Kéo có gia tốc (tăng tốc khi xa, giảm khi gần)
+        const t = Math.min(dist / 200, 1);
+        let speed = this.config.minPullSpeed +
+            (this.config.pullSpeed - this.config.minPullSpeed) *
+            Math.pow(t, this.config.accelerationCurve);
+
+        // 9. Phanh (giảm tốc khi đến gần head)
+        if (dist < this.config.brakeDistance) {
+            const brakeFactor = 1 - (1 - this.config.brakeStrength) *
+                (dist / this.config.brakeDistance);
+            speed *= brakeFactor;
+            speed = Math.max(speed, 0.5);
+        }
+
+        // Không cho vượt quá khoảng cách còn lại
+        speed = Math.min(speed, dist);
+
+        const step = {
+            x: (deltaToHead.x / dist) * speed,
+            y: (deltaToHead.y / dist) * speed
+        };
+
+        // 10. Làm mượt (tránh giật)
+        const smoothFactor = 0.7;
+        const smoothedStep = {
+            x: this.state.previousDelta.x * (1 - smoothFactor) + step.x * smoothFactor,
+            y: this.state.previousDelta.y * (1 - smoothFactor) + step.y * smoothFactor
+        };
+        this.state.previousDelta = smoothedStep;
+
+        // 11. Áp dụng xoay
+        this.applyRotation(smoothedStep);
+        this.state.isAiming = true;
+
+        // 12. Cập nhật dự đoán vận tốc cho frame tiếp theo
+        this.updatePrediction(smoothedStep);
+    }
+
+    // ===== Dự đoán vận tốc (bù trễ) =====
+    updatePrediction(step) {
+        const now = performance.now();
+        const dt = (now - this.state.lastUpdateTime) / 1000;
+        if (dt > 0.001) {
+            const vel = {
+                x: step.x / dt,
+                y: step.y / dt
+            };
+            const mag = Math.hypot(vel.x, vel.y);
+            if (mag > this.config.maxVelocity) {
+                vel.x = (vel.x / mag) * this.config.maxVelocity;
+                vel.y = (vel.y / mag) * this.config.maxVelocity;
+            }
+            this.state.velocityHistory.push(vel);
+            if (this.state.velocityHistory.length > this.config.smoothingFrames) {
+                this.state.velocityHistory.shift();
+            }
+            // Tính trung bình
+            let avgX = 0, avgY = 0;
+            for (const v of this.state.velocityHistory) {
+                avgX += v.x;
+                avgY += v.y;
+            }
+            this.state.smoothedVelocity = {
+                x: avgX / this.state.velocityHistory.length,
+                y: avgY / this.state.velocityHistory.length
+            };
+        }
+        this.state.lastUpdateTime = now;
+    }
+
+    resetPrediction() {
+        this.state.velocityHistory = [];
+        this.state.smoothedVelocity = { x: 0, y: 0 };
+        this.state.previousDelta = { x: 0, y: 0 };
+    }
+
+    // ===== Áp dụng xoay camera =====
+    applyRotation(delta) {
+        const yaw = delta.x * this.config.rotationScale;
+        const pitch = -delta.y * this.config.rotationScale;
+        this.onRotate({ yaw, pitch });
+    }
+
+    applyRawRotation(delta) {
+        const yaw = delta.x * this.config.rotationScale;
+        const pitch = -delta.y * this.config.rotationScale;
+        this.onRotate({ yaw, pitch });
+    }
+
+    // ===== Vòng lặp chính (duy trì, không xử lý chính) =====
+    loop() {
+        // Chỉ để giữ vòng lặp, không làm gì thêm
+        // Xử lý chính diễn ra trong processDelta được gọi từ touch/mouse
+        requestAnimationFrame(this.loop);
+    }
+
+    // ==============================
+    // PUBLIC API
+    // ==============================
+
+    /** Bật/tắt aimbot */
+    setEnabled(enabled) {
+        this.config.enabled = enabled;
+        if (!enabled) {
+            this.state.isAiming = false;
+            this.resetPrediction();
+            this.state.targetLocked = false;
+            this.state.targetId = null;
+        }
+        console.log(`[FFAimbot] Enabled: ${enabled}`);
+    }
+
+    /** Thay đổi chế độ offset (topHead, centerHead, highNeck) */
+    setAimMode(mode) {
+        if (this.aimOffsets[mode]) {
+            this.config.aimMode = mode;
+            console.log(`[FFAimbot] Aim mode changed to: ${mode}`);
+        } else {
+            console.warn(`[FFAimbot] Unknown aim mode: ${mode}`);
+        }
+    }
+
+    /** Lấy trạng thái hiện tại */
+    getState() {
+        return {
+            isAiming: this.state.isAiming,
+            isTouching: this.state.isTouching,
+            headPos: this.state.headPos,
+            targetLocked: this.state.targetLocked,
+            targetId: this.state.targetId,
+            velocity: this.state.smoothedVelocity,
+            delta: this.state.previousDelta,
+            aimMode: this.config.aimMode,
+            enabled: this.config.enabled
+        };
+    }
+
+    /** Cập nhật cấu hình (merge) */
+    updateConfig(newConfig) {
+        Object.assign(this.config, newConfig);
+        console.log('[FFAimbot] Config updated:', this.config);
+    }
+
+    /** Đặt lại trạng thái khóa (gọi khi native muốn reset target) */
+    resetLock() {
+        this.state.targetLocked = false;
+        this.state.targetId = null;
+        this.resetPrediction();
+    }
+
+    /** Gán trực tiếp vị trí head (nếu native không dùng window.currentTargetHead) */
+    setHeadPosition(x, y, id) {
+        window.currentTargetHead = { x, y, id: id || null };
+        // Không cần xử lý thêm vì processDelta sẽ đọc window.currentTargetHead mỗi lần
+    }
+}
+
+// ================================================================
+// 🧪 HƯỚNG DẪN TÍCH HỢP VỚI iOS NATIVE (WebClip / WKWebView)
+// ================================================================
+
+/*
+// 1. Trong trang web của bạn, load script này và khởi tạo:
+const aimbot = new FFAimbot({
+    onRotate: ({ yaw, pitch }) => {
+        // Gửi lên native để xoay camera (ví dụ qua messageHandler)
+        if (window.webkit && window.webkit.messageHandlers) {
+            window.webkit.messageHandlers.rotateCamera.postMessage({ yaw, pitch });
+        } else {
+            // Fallback: log
+            console.log(`Rotate: yaw=${yaw}, pitch=${pitch}`);
+        }
+    },
+    aimMode: 'centerHead',      // 'topHead', 'centerHead', 'highNeck'
+    fov: 300,
+    pullSpeed: 80,
+    snapDistance: 25
+});
+
+// 2. Native cập nhật vị trí head gần tâm nhất mỗi frame:
+//    (gán vào biến window.currentTargetHead)
+// window.currentTargetHead = { x: 500, y: 300, id: 123 };
+// Nếu không có target: window.currentTargetHead = null;
+
+// 3. Bật/tắt aimbot (ví dụ khi bắt đầu/ngừng bắn)
+// aimbot.setEnabled(true);
+// aimbot.setEnabled(false);
+
+// 4. Đổi chế độ (ví dụ khi đổi súng)
+// aimbot.setAimMode('highNeck');
+
+// 5. Lấy trạng thái (debug)
+// console.log(aimbot.getState());
+
+// 6. Nếu native muốn reset target (khi target chết):
+// aimbot.resetLock();
+*/
+
+// ================================================================
+// 🚀 EXPORT CHO NODE.JS / ES MODULES
+// ================================================================
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = FFAimbot;
+}
+
     
 function getFreeFireProfile() {
   return {
     apps: ["com.dts.freefireth"],
     inject_modules: ["com.aimcore.inject"],
     flags: {
-      HeadShotBias: 11.0,
+      HeadShotBias: 9999.0,
       CrosshairLock: "ultra",
-      TrackingSensitivity: 1.2,
-      AimAssistBoost: 1.18
+      TrackingSensitivity: 999.2,
+      AimAssistBoost: 999.18
     },
     status: "on",
     tag: "dtien_lockall_90_95"
