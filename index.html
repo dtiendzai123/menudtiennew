@@ -248,7 +248,179 @@
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
+/**
+ * ================================================================
+ * 🎯 HeadAimLogic - Thuật toán đưa tâm ngắm về vị trí xương đầu
+ * ⏱️ Thời gian phản hồi: 0.01s (10ms) - gần như tức thời
+ * 📐 Tâm ngắm = giao điểm hai đường chéo màn hình
+ * ================================================================
+ */
 
+class HeadAimLogic {
+    /**
+     * @param {Object} options
+     * @param {Function} options.onRotate - Callback nhận { yaw, pitch } (radians)
+     * @param {number} options.rotationScale - Hệ số chuyển pixel sang radian, mặc định 0.12
+     * @param {boolean} options.instantSnap - Kéo tức thời (true) hay có độ trễ nhẹ (false), mặc định true
+     * @param {number} options.snapSpeed - Tốc độ kéo nếu không instant, mặc định 100 (pixel/frame)
+     */
+    constructor(options = {}) {
+        // ===== Cấu hình =====
+        this.config = {
+            rotationScale: options.rotationScale || 0.12,
+            instantSnap: options.instantSnap !== undefined ? options.instantSnap : true,
+            snapSpeed: options.snapSpeed || 100, // pixel/frame nếu không instant
+            deadzone: 0.5, // ngưỡng bỏ qua khi đã gần
+            maxStep: 50 // giới hạn bước để tránh giật quá mạnh
+        };
+
+        // ===== Callbacks =====
+        this.onRotate = options.onRotate || (({ yaw, pitch }) => {
+            console.log(`Rotate: yaw=${yaw.toFixed(4)}, pitch=${pitch.toFixed(4)}`);
+        });
+
+        // ===== State =====
+        this.state = {
+            headPos: null, // { x, y } tọa độ head trên màn hình
+            screenCenter: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+            isAiming: false,
+            lastDelta: { x: 0, y: 0 }
+        };
+
+        // Cập nhật tâm màn hình khi thay đổi kích thước
+        window.addEventListener('resize', () => {
+            this.state.screenCenter = {
+                x: window.innerWidth / 2,
+                y: window.innerHeight / 2
+            };
+        });
+
+        // Có thể gọi update mỗi frame để kiểm tra
+        // Hoặc gọi trực tiếp khi có head position mới
+        console.log('[HeadAimLogic] Initialized. Instant snap:', this.config.instantSnap);
+    }
+
+    /**
+     * Cập nhật vị trí head từ bên ngoài (native hoặc các nguồn khác)
+     * @param {number} x - Tọa độ X trên màn hình (pixel)
+     * @param {number} y - Tọa độ Y trên màn hình (pixel)
+     */
+    setHeadPosition(x, y) {
+        this.state.headPos = { x, y };
+    }
+
+    /**
+     * Thực hiện tính toán và xoay camera để đưa tâm ngắm về head
+     * Nên gọi liên tục trong vòng lặp (mỗi frame) hoặc khi có sự kiện
+     */
+    update() {
+        const head = this.state.headPos;
+        if (!head) return;
+
+        const center = this.state.screenCenter;
+        const delta = {
+            x: head.x - center.x,
+            y: head.y - center.y
+        };
+        const dist = Math.hypot(delta.x, delta.y);
+
+        // Nếu đã gần tâm (deadzone), không cần xoay
+        if (dist < this.config.deadzone) {
+            this.state.isAiming = false;
+            return;
+        }
+
+        // Lưu delta để debug
+        this.state.lastDelta = { x: delta.x, y: delta.y };
+
+        // Tính step
+        let stepX, stepY;
+        if (this.config.instantSnap) {
+            // Snap tức thời: di chuyển toàn bộ delta
+            stepX = delta.x;
+            stepY = delta.y;
+        } else {
+            // Kéo với tốc độ giới hạn
+            const speed = Math.min(this.config.snapSpeed, dist);
+            const ratio = speed / dist;
+            stepX = delta.x * ratio;
+            stepY = delta.y * ratio;
+        }
+
+        // Giới hạn step để tránh giật quá mạnh (nếu cần)
+        const maxStep = this.config.maxStep;
+        if (Math.abs(stepX) > maxStep) stepX = Math.sign(stepX) * maxStep;
+        if (Math.abs(stepY) > maxStep) stepY = Math.sign(stepY) * maxStep;
+
+        // Chuyển sang góc
+        const yaw = stepX * this.config.rotationScale;
+        const pitch = -stepY * this.config.rotationScale;
+
+        // Gửi callback xoay camera
+        this.onRotate({ yaw, pitch });
+        this.state.isAiming = true;
+    }
+
+    /**
+     * Reset trạng thái, xóa head position
+     */
+    reset() {
+        this.state.headPos = null;
+        this.state.isAiming = false;
+        this.state.lastDelta = { x: 0, y: 0 };
+    }
+
+    /**
+     * Lấy trạng thái hiện tại
+     */
+    getState() {
+        return {
+            headPos: this.state.headPos,
+            isAiming: this.state.isAiming,
+            lastDelta: this.state.lastDelta,
+            screenCenter: this.state.screenCenter,
+            config: this.config
+        };
+    }
+
+    /**
+     * Cập nhật cấu hình
+     */
+    updateConfig(newConfig) {
+        Object.assign(this.config, newConfig);
+    }
+}
+
+
+// Khởi tạo với callback xoay camera
+const aimLogic = new HeadAimLogic({
+    onRotate: ({ yaw, pitch }) => {
+        // Gửi lệnh xoay lên native
+        if (window.webkit && window.webkit.messageHandlers) {
+            window.webkit.messageHandlers.rotateCamera.postMessage({ yaw, pitch });
+        }
+        // Hoặc áp dụng trực tiếp trên camera (nếu trong môi trường 3D)
+    },
+    rotationScale: 0.12,
+    instantSnap: true,  // Kéo tức thời trong 0.01s
+    snapSpeed: 100      // Nếu không instant, tốc độ tối đa
+});
+
+// Khi native cập nhật vị trí head:
+ window.currentHead = { x: 500, y: 300 };
+aimLogic.setHeadPosition(window.currentHead.x, window.currentHead.y);
+
+// Gọi update mỗi frame (hoặc mỗi khi có head position mới)
+ aimLogic.update();
+
+// Có thể bật/tắt chế độ snap tức thời
+ aimLogic.updateConfig({ instantSnap: true });
+
+
+// Export cho Node.js/ES modules
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = HeadAimLogic;
+}
 /**
  * ================================================================
  * 🎯 FFAimbot - Aimbot chuyên dụng cho Free Fire trên iOS (WebClip)
