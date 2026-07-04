@@ -642,12 +642,7 @@ class FFAimbot {
     }
 }
 
-// ================================================================
-// 🧪 HƯỚNG DẪN TÍCH HỢP VỚI iOS NATIVE (WebClip / WKWebView)
-// ================================================================
 
-/*
-// 1. Trong trang web của bạn, load script này và khởi tạo:
 const aimbot = new FFAimbot({
     onRotate: ({ yaw, pitch }) => {
         // Gửi lên native để xoay camera (ví dụ qua messageHandler)
@@ -664,24 +659,23 @@ const aimbot = new FFAimbot({
     snapDistance: 25
 });
 
-// 2. Native cập nhật vị trí head gần tâm nhất mỗi frame:
-//    (gán vào biến window.currentTargetHead)
-// window.currentTargetHead = { x: 500, y: 300, id: 123 };
-// Nếu không có target: window.currentTargetHead = null;
 
-// 3. Bật/tắt aimbot (ví dụ khi bắt đầu/ngừng bắn)
-// aimbot.setEnabled(true);
-// aimbot.setEnabled(false);
+
+ window.currentTargetHead = { x: 500, y: 300, id: 123 };
+ window.currentTargetHead = null;
+
+
+aimbot.setEnabled(true);
 
 // 4. Đổi chế độ (ví dụ khi đổi súng)
-// aimbot.setAimMode('highNeck');
+aimbot.setAimMode('highNeck');
 
 // 5. Lấy trạng thái (debug)
-// console.log(aimbot.getState());
+console.log(aimbot.getState());
 
 // 6. Nếu native muốn reset target (khi target chết):
-// aimbot.resetLock();
-*/
+aimbot.resetLock();
+
 
 // ================================================================
 // 🚀 EXPORT CHO NODE.JS / ES MODULES
