@@ -689,7 +689,452 @@ const aimbot = new FFAimbot({
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = FFAimbot;
 }
+/**
+ * ================================================================
+ * 🎯 FFAimbot - Aimbot chuyên dụng cho Free Fire trên iOS (WebClip)
+ * 🔒 TÍNH NĂNG MỚI: Giữ đường tâm cố định khi tracking
+ * 🎯 Căn chỉnh trục ngắm vùng đầu chính xác hơn
+ * ================================================================
+ */
 
+class FFAimbot {
+    /**
+     * @param {Object} options
+     * @param {Function} options.onRotate - Callback nhận { yaw, pitch } (radians)
+     * @param {string} options.aimMode - 'topHead', 'centerHead' (mặc định), 'highNeck'
+     * @param {number} options.fov - Bán kính FOV (pixel), mặc định 300
+     * @param {number} options.pullSpeed - Tốc độ kéo tối đa (pixel/frame), mặc định 80
+     * @param {number} options.snapDistance - Khoảng cách snap (pixel), mặc định 25
+     * @param {boolean} options.enabled - Bật/tắt ngay từ đầu, mặc định true
+     * @param {boolean} options.lockCrosshairWhenTracking - Khóa crosshair khi tracking, mặc định true
+     */
+    constructor(options = {}) {
+        // ===== Cấu hình =====
+        this.config = {
+            fov: options.fov || 300,
+            pullSpeed: options.pullSpeed || 80,
+            minPullSpeed: 3,
+            accelerationCurve: 2.5,
+            snapDistance: options.snapDistance || 25,
+            brakeDistance: 30,
+            brakeStrength: 0.92,
+            holdRadius: 3,
+            holdStrength: 0.96,
+            deadzone: 0.5,
+            rotationScale: 0.12,
+            predictionAmount: 0.4,
+            smoothingFrames: 3,
+            maxVelocity: 30,
+            aimMode: options.aimMode || 'centerHead',
+            enabled: options.enabled !== undefined ? options.enabled : true,
+            sticky: true,
+            stickyFovMultiplier: 1.8,
+            // ⭐ TÍNH NĂNG MỚI: Khóa crosshair khi tracking
+            lockCrosshairWhenTracking: options.lockCrosshairWhenTracking !== undefined ? options.lockCrosshairWhenTracking : true,
+            // Hệ số căn chỉnh tinh tế (tăng độ chính xác)
+            fineTuneFactor: 1.0
+        };
+
+        // ===== Offsets theo chế độ =====
+        this.aimOffsets = {
+            topHead: { x: 0, y: -15 },      // Đỉnh đầu
+            centerHead: { x: 0, y: -8 },    // Giữa đầu – tối ưu
+            highNeck: { x: 0, y: -3 }       // Cổ thượng
+        };
+
+        // ===== Callbacks =====
+        this.onRotate = options.onRotate || (({ yaw, pitch }) => {
+            console.log(`🎯 Rotate: yaw=${yaw.toFixed(4)}, pitch=${pitch.toFixed(4)}`);
+        });
+
+        // ===== State =====
+        this.state = {
+            headPos: null,
+            screenCenter: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+            lastHeadPos: { x: 0, y: 0 },
+            velocityHistory: [],
+            smoothedVelocity: { x: 0, y: 0 },
+            previousDelta: { x: 0, y: 0 },
+            isAiming: false,
+            isTouching: false,
+            lastTouchPos: { x: 0, y: 0 },
+            lastUpdateTime: performance.now(),
+            targetLocked: false,
+            targetId: null,
+            // Lưu delta cuối cùng để debug
+            lastDelta: { x: 0, y: 0 },
+            lastRawDelta: { x: 0, y: 0 }
+        };
+
+        // ===== Bind events =====
+        this.bindEvents(options.targetElement || document);
+
+        // ===== Start loop =====
+        this.loop = this.loop.bind(this);
+        requestAnimationFrame(this.loop);
+
+        console.log('[FFAimbot] Khởi tạo thành công. Chế độ:', this.config.aimMode);
+        console.log('[FFAimbot] Lock crosshair khi tracking:', this.config.lockCrosshairWhenTracking);
+    }
+
+    // ===== Gắn sự kiện =====
+    bindEvents(el) {
+        el.addEventListener('touchstart', this.onTouchStart.bind(this), { passive: true });
+        el.addEventListener('touchmove', this.onTouchMove.bind(this), { passive: true });
+        el.addEventListener('touchend', this.onTouchEnd.bind(this), { passive: true });
+        el.addEventListener('touchcancel', this.onTouchEnd.bind(this), { passive: true });
+
+        el.addEventListener('mousedown', this.onMouseDown.bind(this));
+        el.addEventListener('mousemove', this.onMouseMove.bind(this));
+        el.addEventListener('mouseup', this.onMouseUp.bind(this));
+
+        window.addEventListener('resize', () => {
+            this.state.screenCenter = {
+                x: window.innerWidth / 2,
+                y: window.innerHeight / 2
+            };
+        });
+    }
+
+    // ===== Touch handlers =====
+    onTouchStart(e) {
+        const t = e.touches[0];
+        if (!t) return;
+        this.state.isTouching = true;
+        this.state.lastTouchPos = { x: t.clientX, y: t.clientY };
+    }
+
+    onTouchMove(e) {
+        if (!this.state.isTouching || !this.config.enabled) return;
+        const t = e.touches[0];
+        if (!t) return;
+        const currentPos = { x: t.clientX, y: t.clientY };
+        const rawDelta = {
+            x: currentPos.x - this.state.lastTouchPos.x,
+            y: currentPos.y - this.state.lastTouchPos.y
+        };
+        this.processDelta(rawDelta);
+        this.state.lastTouchPos = currentPos;
+    }
+
+    onTouchEnd() {
+        this.state.isTouching = false;
+        this.state.isAiming = false;
+        this.resetPrediction();
+    }
+
+    // ===== Mouse handlers =====
+    onMouseDown(e) {
+        this.state.isTouching = true;
+        this.state.lastTouchPos = { x: e.clientX, y: e.clientY };
+    }
+
+    onMouseMove(e) {
+        if (!this.state.isTouching || !this.config.enabled) return;
+        const currentPos = { x: e.clientX, y: e.clientY };
+        const rawDelta = {
+            x: currentPos.x - this.state.lastTouchPos.x,
+            y: currentPos.y - this.state.lastTouchPos.y
+        };
+        this.processDelta(rawDelta);
+        this.state.lastTouchPos = currentPos;
+    }
+
+    onMouseUp() {
+        this.state.isTouching = false;
+        this.state.isAiming = false;
+        this.resetPrediction();
+    }
+
+    // =========================================================
+    // ⭐ CỐT LÕI: XỬ LÝ DELTA VỚI CƠ CHẾ KHÓA CROSSHAIR
+    // =========================================================
+    processDelta(rawDelta) {
+        // Lưu raw delta để debug
+        this.state.lastRawDelta = { x: rawDelta.x, y: rawDelta.y };
+
+        // 1. Đọc vị trí head từ native
+        const head = window.currentTargetHead;
+        if (!head || typeof head.x !== 'number' || typeof head.y !== 'number') {
+            // Không có target: áp dụng raw delta bình thường
+            this.applyRawRotation(rawDelta);
+            this.state.isAiming = false;
+            this.resetPrediction();
+            if (this.state.targetLocked) {
+                this.state.targetLocked = false;
+                this.state.targetId = null;
+            }
+            return;
+        }
+
+        // 2. Lưu head pos
+        this.state.headPos = { x: head.x, y: head.y };
+        if (head.id !== undefined) this.state.targetId = head.id;
+
+        // 3. Áp dụng offset
+        const offset = this.aimOffsets[this.config.aimMode] || this.aimOffsets.centerHead;
+        const adjustedHead = {
+            x: this.state.headPos.x + offset.x,
+            y: this.state.headPos.y + offset.y
+        };
+
+        // 4. Tính delta từ tâm đến head
+        const center = this.state.screenCenter;
+        const deltaToHead = {
+            x: adjustedHead.x - center.x,
+            y: adjustedHead.y - center.y
+        };
+        const dist = Math.hypot(deltaToHead.x, deltaToHead.y);
+
+        // 5. Kiểm tra FOV (với sticky)
+        const effectiveFov = this.state.targetLocked
+            ? this.config.fov * this.config.stickyFovMultiplier
+            : this.config.fov;
+
+        if (dist > effectiveFov) {
+            // Nếu đã khóa nhưng ra khỏi FOV mở rộng, vẫn giữ khóa (sticky)
+            // nhưng không aim (chỉ di chuyển bình thường)
+            this.applyRawRotation(rawDelta);
+            this.state.isAiming = false;
+            if (!this.config.sticky) {
+                this.state.targetLocked = false;
+                this.state.targetId = null;
+            }
+            return;
+        }
+
+        // 6. Cập nhật trạng thái khóa
+        if (!this.state.targetLocked) {
+            this.state.targetLocked = true;
+        }
+
+        // ⭐⭐ QUYẾT ĐỊNH QUAN TRỌNG: Có khóa crosshair hay không
+        // Nếu lockCrosshairWhenTracking = true, ta BỎ QUA rawDelta, chỉ dùng deltaToHead
+        // => Crosshair luôn ở tâm, camera tự xoay để head về tâm
+        // => Giữ đường tâm cố định
+        let finalDelta = { x: 0, y: 0 };
+
+        if (this.config.lockCrosshairWhenTracking) {
+            // Chế độ khóa crosshair: chỉ điều chỉnh bằng deltaToHead
+            // Không dùng rawDelta
+            finalDelta = this.computeAimDelta(deltaToHead, dist);
+        } else {
+            // Chế độ thông thường: kết hợp rawDelta và hỗ trợ aim
+            // (giữ nguyên logic cũ: rawDelta + aim correction)
+            // Ở đây ta có thể tính aim delta và cộng thêm vào rawDelta
+            const aimDelta = this.computeAimDelta(deltaToHead, dist);
+            // Trộn aimDelta với rawDelta (có thể dùng trọng số)
+            const mixFactor = 0.6; // Tỉ lệ aim so với raw (có thể tùy chỉnh)
+            finalDelta = {
+                x: rawDelta.x + aimDelta.x * mixFactor,
+                y: rawDelta.y + aimDelta.y * mixFactor
+            };
+            // Giới hạn để tránh giật
+            const maxStep = 30;
+            finalDelta.x = Math.max(-maxStep, Math.min(maxStep, finalDelta.x));
+            finalDelta.y = Math.max(-maxStep, Math.min(maxStep, finalDelta.y));
+        }
+
+        // Lưu delta cuối cùng
+        this.state.lastDelta = { x: finalDelta.x, y: finalDelta.y };
+
+        // 7. Áp dụng xoay
+        if (Math.abs(finalDelta.x) > 0.01 || Math.abs(finalDelta.y) > 0.01) {
+            this.applyRotation(finalDelta);
+            this.state.isAiming = true;
+            this.updatePrediction(finalDelta);
+        } else {
+            this.state.isAiming = false;
+        }
+    }
+
+    // =========================================================
+    // HÀM TÍNH AIM DELTA CHÍNH XÁC
+    // =========================================================
+    computeAimDelta(deltaToHead, dist) {
+        if (dist < this.config.deadzone) {
+            return { x: 0, y: 0 };
+        }
+
+        // Snap nếu gần
+        if (dist < this.config.snapDistance) {
+            return { x: deltaToHead.x, y: deltaToHead.y };
+        }
+
+        // Kéo có gia tốc
+        const t = Math.min(dist / 200, 1);
+        let speed = this.config.minPullSpeed +
+            (this.config.pullSpeed - this.config.minPullSpeed) *
+            Math.pow(t, this.config.accelerationCurve);
+
+        // Phanh
+        if (dist < this.config.brakeDistance) {
+            const brakeFactor = 1 - (1 - this.config.brakeStrength) *
+                (dist / this.config.brakeDistance);
+            speed *= brakeFactor;
+            speed = Math.max(speed, 0.5);
+        }
+
+        speed = Math.min(speed, dist);
+
+        const step = {
+            x: (deltaToHead.x / dist) * speed,
+            y: (deltaToHead.y / dist) * speed
+        };
+
+        // Làm mượt
+        const smoothFactor = 0.7;
+        const smoothedStep = {
+            x: this.state.previousDelta.x * (1 - smoothFactor) + step.x * smoothFactor,
+            y: this.state.previousDelta.y * (1 - smoothFactor) + step.y * smoothFactor
+        };
+        this.state.previousDelta = smoothedStep;
+
+        return smoothedStep;
+    }
+
+    // ===== Dự đoán vận tốc =====
+    updatePrediction(step) {
+        const now = performance.now();
+        const dt = (now - this.state.lastUpdateTime) / 1000;
+        if (dt > 0.001) {
+            const vel = {
+                x: step.x / dt,
+                y: step.y / dt
+            };
+            const mag = Math.hypot(vel.x, vel.y);
+            if (mag > this.config.maxVelocity) {
+                vel.x = (vel.x / mag) * this.config.maxVelocity;
+                vel.y = (vel.y / mag) * this.config.maxVelocity;
+            }
+            this.state.velocityHistory.push(vel);
+            if (this.state.velocityHistory.length > this.config.smoothingFrames) {
+                this.state.velocityHistory.shift();
+            }
+            let avgX = 0, avgY = 0;
+            for (const v of this.state.velocityHistory) {
+                avgX += v.x;
+                avgY += v.y;
+            }
+            this.state.smoothedVelocity = {
+                x: avgX / this.state.velocityHistory.length,
+                y: avgY / this.state.velocityHistory.length
+            };
+        }
+        this.state.lastUpdateTime = now;
+    }
+
+    resetPrediction() {
+        this.state.velocityHistory = [];
+        this.state.smoothedVelocity = { x: 0, y: 0 };
+        this.state.previousDelta = { x: 0, y: 0 };
+    }
+
+    // ===== Áp dụng xoay =====
+    applyRotation(delta) {
+        const yaw = delta.x * this.config.rotationScale * this.config.fineTuneFactor;
+        const pitch = -delta.y * this.config.rotationScale * this.config.fineTuneFactor;
+        this.onRotate({ yaw, pitch });
+    }
+
+    applyRawRotation(delta) {
+        const yaw = delta.x * this.config.rotationScale;
+        const pitch = -delta.y * this.config.rotationScale;
+        this.onRotate({ yaw, pitch });
+    }
+
+    // ===== Vòng lặp chính =====
+    loop() {
+        requestAnimationFrame(this.loop);
+    }
+
+    // ==============================
+    // PUBLIC API
+    // ==============================
+
+    setEnabled(enabled) {
+        this.config.enabled = enabled;
+        if (!enabled) {
+            this.state.isAiming = false;
+            this.resetPrediction();
+            this.state.targetLocked = false;
+            this.state.targetId = null;
+        }
+        console.log(`[FFAimbot] Enabled: ${enabled}`);
+    }
+
+    setAimMode(mode) {
+        if (this.aimOffsets[mode]) {
+            this.config.aimMode = mode;
+            console.log(`[FFAimbot] Aim mode changed to: ${mode}`);
+        }
+    }
+
+    setLockCrosshair(enabled) {
+        this.config.lockCrosshairWhenTracking = enabled;
+        console.log(`[FFAimbot] Lock crosshair: ${enabled}`);
+    }
+
+    getState() {
+        return {
+            isAiming: this.state.isAiming,
+            isTouching: this.state.isTouching,
+            headPos: this.state.headPos,
+            targetLocked: this.state.targetLocked,
+            targetId: this.state.targetId,
+            velocity: this.state.smoothedVelocity,
+            delta: this.state.lastDelta,
+            rawDelta: this.state.lastRawDelta,
+            aimMode: this.config.aimMode,
+            enabled: this.config.enabled,
+            lockCrosshair: this.config.lockCrosshairWhenTracking
+        };
+    }
+
+    updateConfig(newConfig) {
+        Object.assign(this.config, newConfig);
+        console.log('[FFAimbot] Config updated:', this.config);
+    }
+
+    resetLock() {
+        this.state.targetLocked = false;
+        this.state.targetId = null;
+        this.resetPrediction();
+    }
+
+    setHeadPosition(x, y, id) {
+        window.currentTargetHead = { x, y, id: id || null };
+    }
+}
+
+// ================================================================
+// 🧪 HƯỚNG DẪN SỬ DỤNG
+// ================================================================
+/*
+const aimbot = new FFAimbot({
+    onRotate: ({ yaw, pitch }) => {
+        // Gửi lên native
+        if (window.webkit && window.webkit.messageHandlers) {
+            window.webkit.messageHandlers.rotateCamera.postMessage({ yaw, pitch });
+        }
+    },
+    aimMode: 'centerHead',
+    fov: 300,
+    pullSpeed: 80,
+    snapDistance: 25,
+    lockCrosshairWhenTracking: true   // ⭐ BẬT KHÓA CROSSHAIR
+});
+
+// Native cập nhật target:
+// window.currentTargetHead = { x: 500, y: 300, id: 123 };
+
+// Khi tracking, crosshair sẽ được giữ cố định tại tâm màn hình,
+// camera xoay để đưa head về đúng tâm, giúp aim chính xác hơn.
+*/
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = FFAimbot;
+}
     
 function getFreeFireProfile() {
   return {
